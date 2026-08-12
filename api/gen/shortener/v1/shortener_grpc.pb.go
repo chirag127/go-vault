@@ -4,7 +4,6 @@ package shortenerv1
 
 import (
 	"context"
-	"encoding/json"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -234,12 +233,3 @@ var ShortenerService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "shortener.proto",
 }
-
-// jsonCodec is the gRPC codec used for JSON serialization.
-// gRPC normally uses protobuf wire format; we use JSON for human-readability
-// in this service. In production, swap to proto wire format.
-type jsonCodec struct{}
-
-func (jsonCodec) Marshal(v interface{}) ([]byte, error)   { return json.Marshal(v) }
-func (jsonCodec) Unmarshal(data []byte, v interface{}) error { return json.Unmarshal(data, v) }
-func (jsonCodec) Name() string                           { return "json" }

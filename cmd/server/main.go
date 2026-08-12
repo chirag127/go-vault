@@ -61,7 +61,7 @@ func run() error {
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
 	})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		return fmt.Errorf("redis ping: %w", err)

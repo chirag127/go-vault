@@ -33,7 +33,6 @@ func New(svc *service.ShortenerService, log *slog.Logger) *Server {
 // Handler returns the root http.Handler.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(s.metricsMiddleware)
