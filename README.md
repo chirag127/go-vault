@@ -3,7 +3,7 @@
 A production-grade URL shortener microservice written in Go. Live demo: `docker compose up` and it's running.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.25-00ADD8?logo=go)](go.mod)
 [![CI](https://github.com/chirag127/go-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/chirag127/go-vault/actions/workflows/ci.yml)
 
 ## Quick start
@@ -39,7 +39,7 @@ graph TD
 
 | Layer | Technology |
 |---|---|
-| Language | Go 1.26 |
+| Language | Go 1.25 |
 | gRPC | google.golang.org/grpc + hand-authored service stubs |
 | Proto source | Protocol Buffers v3 (`api/proto/shortener.proto`) |
 | HTTP gateway | chi v5 (thin REST layer over the same service) |

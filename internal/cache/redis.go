@@ -75,7 +75,10 @@ func (c *Client) CheckRateLimit(ctx context.Context, ip string, maxRequests int,
 	key := rateLimitKeyPrefix + ip
 	pipe := c.rdb.Pipeline()
 	incr := pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, window)
+	// ExpireNX sets expiry only when the key has no TTL (i.e. on first request in window).
+	// Using Expire here would reset the window on every request, making the window slide
+	// and never expire under sustained load.
+	pipe.ExpireNX(ctx, key, window)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return true, maxRequests, fmt.Errorf("redis pipeline: %w", err) // fail open
 	}

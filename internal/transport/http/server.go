@@ -107,9 +107,10 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"code":          link.Code,
-		"click_count":   link.ClickCount,
-		"last_accessed": link.CreatedAt,
+		"code":        link.Code,
+		"click_count": link.ClickCount,
+		"created_at":  link.CreatedAt,
+		"expires_at":  link.ExpiresAt,
 	})
 }
 
