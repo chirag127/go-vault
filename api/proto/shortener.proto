@@ -4,46 +4,15 @@ package shortener.v1;
 
 option go_package = "github.com/chirag127/go-vault/api/gen/shortener/v1;shortenerv1";
 
-import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 service ShortenerService {
-  rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse) {
-    option (google.api.http) = {
-      post: "/v1/links"
-      body: "*"
-    };
-  }
-
-  rpc GetLink(GetLinkRequest) returns (GetLinkResponse) {
-    option (google.api.http) = {
-      get: "/v1/links/{code}"
-    };
-  }
-
-  rpc Resolve(ResolveRequest) returns (ResolveResponse) {
-    option (google.api.http) = {
-      get: "/r/{code}"
-    };
-  }
-
-  rpc Stats(StatsRequest) returns (StatsResponse) {
-    option (google.api.http) = {
-      get: "/v1/links/{code}/stats"
-    };
-  }
-
-  rpc ListLinks(ListLinksRequest) returns (ListLinksResponse) {
-    option (google.api.http) = {
-      get: "/v1/links"
-    };
-  }
-
-  rpc DeleteLink(DeleteLinkRequest) returns (DeleteLinkResponse) {
-    option (google.api.http) = {
-      delete: "/v1/links/{code}"
-    };
-  }
+  rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse) {}
+  rpc GetLink(GetLinkRequest) returns (GetLinkResponse) {}
+  rpc Resolve(ResolveRequest) returns (ResolveResponse) {}
+  rpc Stats(StatsRequest) returns (StatsResponse) {}
+  rpc ListLinks(ListLinksRequest) returns (ListLinksResponse) {}
+  rpc DeleteLink(DeleteLinkRequest) returns (DeleteLinkResponse) {}
 }
 
 message CreateLinkRequest {
