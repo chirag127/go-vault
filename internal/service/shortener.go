@@ -180,5 +180,8 @@ func validateURL(raw string) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host")
+	}
 	return nil
 }
