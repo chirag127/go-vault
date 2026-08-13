@@ -2,6 +2,11 @@
 
 All notable changes documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] - 2026-08-13
+### Changed
+- docs: comprehensive README + topics
+- fix(ci): pass github_token to buf-setup-action to avoid rate-limit download failures
+
 ## [Unreleased] - 2026-08-12
 ### Changed
 - fix: rate limiter fixed window; correct stats field; add cache tests
