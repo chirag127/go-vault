@@ -1,57 +1,196 @@
 # go-vault
 
-A production-grade URL shortener microservice written in Go. Live demo: `docker compose up` and it's running.
+**A production-grade URL shortener microservice written in Go** — dual HTTP + gRPC transports over one shared domain, Redis read-through caching, PostgreSQL persistence, per-IP rate limiting, and Prometheus metrics. Live locally in one command: `docker compose up`.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.25-00ADD8?logo=go)](go.mod)
+> Despite the name, go-vault is a URL shortener, not a secrets store. No credentials or vault data live in this repo.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/chirag127/go-vault?style=flat-square)](https://github.com/chirag127/go-vault/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/chirag127/go-vault?style=flat-square)](https://github.com/chirag127/go-vault/commits)
 [![CI](https://github.com/chirag127/go-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/chirag127/go-vault/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/go-1.25-00ADD8?style=flat-square&logo=go)](go.mod)
+
+## What it is / why it exists
+
+go-vault is a compact but complete reference microservice: create a short code for a URL, resolve it with a redirect, track click stats, and expire links via TTL. It exists to demonstrate a clean, 12-factor Go service with two transports over one shared domain, a read-through cache, and first-class observability — scaffolding you can lift straight into real systems.
+
+## Links
+
+- **Repo:** https://github.com/chirag127/go-vault
+- **GitHub Pages:** for oriz web apps the Cloudflare domain is the canonical live site; for this self-hosted service repo, GitHub Pages (https://chirag127.github.io/go-vault/) serves the repo landing/about page only. go-vault itself is a service you run with Docker.
+
+## ⭐ Star this repo
+
+If this is useful, please ⭐ star the repo — it helps others find it.
+
+## Architecture
+
+```mermaid
+graph TD
+    Client -->|HTTP REST :8080| HTTPGateway[chi HTTP server]
+    Client -->|gRPC :9090| GRPCSrv[gRPC server]
+    HTTPGateway --> Svc[ShortenerService]
+    GRPCSrv --> Svc
+    Svc -->|read-through / write-invalidate| Cache[(Redis 7)]
+    Svc -->|persist links + clicks| PG[(PostgreSQL 17)]
+    Svc -->|per-IP rate limit| Cache
+    HTTPGateway -->|/metrics| Prom[/Prometheus exporter/]
+    Prom --> Prometheus[Prometheus UI :9091]
+```
+
+### Request lifecycle (create + resolve)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as ShortenerService
+    participant R as Redis
+    participant P as PostgreSQL
+    C->>S: POST /v1/links {original_url, ttl}
+    S->>P: INSERT link (base62 code)
+    S->>R: cache code -> URL
+    S-->>C: 201 {code, original_url}
+    C->>S: GET /r/{code}
+    S->>R: lookup code (read-through)
+    alt cache miss
+        R-->>S: miss
+        S->>P: SELECT by code
+        S->>R: populate cache
+    end
+    S->>P: async click++ (fire-and-forget), evict cache
+    S-->>C: 302 redirect to original_url
+```
+
+## Features
+
+- **Dual transport** — the same `ShortenerService` domain is served over REST (chi/v5) and gRPC, no logic duplicated.
+- **Read-through Redis cache** — resolve/get paths hit Redis first; write-invalidate keeps click counts fresh.
+- **Per-IP rate limiting** — Redis-backed counter (`RATE_LIMIT_MAX` per `RATE_LIMIT_WINDOW`), fails open on cache errors.
+- **Base62 short codes** — configurable length, `crypto/rand`-generated, collision-checked.
+- **TTL / link expiry** — optional per-link `ttl_seconds`; cache never serves expired links.
+- **Click stats** — per-code click counts, tracked asynchronously.
+- **Prometheus metrics** — `/metrics` endpoint + bundled Prometheus UI in the compose stack.
+- **12-factor config** — every knob is an env var with a sane default.
+- **Graceful shutdown** — gRPC `GracefulStop()` + HTTP `Shutdown()` on SIGINT/SIGTERM with a configurable drain.
+- **Structured logging** — `log/slog` JSON with request logging interceptors.
+- **Health probes** — `/healthz` (liveness) and `/readyz` (readiness).
+- **Distroless image** — multi-stage Docker build, minimal final image.
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Language | Go 1.25 |
+| gRPC | `google.golang.org/grpc` + `google.golang.org/protobuf` |
+| Proto source | Protocol Buffers v3 (`api/proto/shortener.proto`), managed with `buf` |
+| HTTP router | `go-chi/chi/v5` |
+| Database | PostgreSQL 17 via `jackc/pgx/v5` (pgxpool) |
+| Cache + rate limit | Redis 7 via `redis/go-redis/v9` |
+| Test cache | `alicebob/miniredis/v2` (in-process Redis for tests) |
+| Migrations | Raw SQL (`migrations/`) |
+| Metrics | Prometheus `client_golang` |
+| Config | `kelseyhightower/envconfig` |
+| Logging | `log/slog` (structured JSON) |
+| Container | Multi-stage Docker → distroless final image |
+| Lint | `golangci-lint` (`.golangci.yml`) |
+
+## Repository structure
+
+```
+go-vault/
+├── api/
+│   ├── proto/            # shortener.proto — gRPC/protobuf service definition
+│   └── gen/              # generated protobuf + gRPC stubs (buf.gen.yaml)
+├── cmd/
+│   └── server/main.go    # entrypoint: wire config -> pg -> redis -> svc -> HTTP+gRPC
+├── internal/
+│   ├── config/           # envconfig-based 12-factor Config struct
+│   ├── codec/            # base62 short-code encoder
+│   ├── domain/           # Link entity + typed domain errors
+│   ├── repository/       # postgres + in-memory repo (interface-driven)
+│   ├── cache/            # Redis read-through cache wrapper
+│   ├── service/          # ShortenerService — the core domain logic
+│   ├── metrics/          # Prometheus collectors
+│   └── transport/
+│       ├── http/         # chi REST server + handlers
+│       └── grpc/         # gRPC handler + logging/metrics interceptors
+├── migrations/           # raw SQL schema migrations
+├── deploy/               # deployment assets
+├── Dockerfile            # multi-stage distroless build
+├── docker-compose.yml    # app + postgres + redis + prometheus
+├── buf.yaml / buf.gen.yaml
+├── Makefile
+├── .golangci.yml
+└── CHANGELOG.md
+```
 
 ## Quick start
 
 ```bash
 git clone https://github.com/chirag127/go-vault.git
 cd go-vault
-docker compose up
+docker compose up --build
 ```
 
-Endpoints:
-- HTTP REST: `http://localhost:8080`
-- gRPC: `localhost:9090`
-- Prometheus metrics: `http://localhost:8080/metrics`
-- Prometheus UI: `http://localhost:9091`
+This starts the service plus PostgreSQL, Redis, and Prometheus. Endpoints:
 
-## Architecture
+- **HTTP REST:** http://localhost:8080
+- **gRPC:** localhost:9090
+- **Prometheus metrics:** http://localhost:8080/metrics
+- **Prometheus UI:** http://localhost:9091
 
-```mermaid
-graph TD
-    Client -->|HTTP REST| HTTPGateway[HTTP :8080]
-    Client -->|gRPC| GRPCSrv[gRPC :9090]
-    HTTPGateway --> Svc[ShortenerService]
-    GRPCSrv --> Svc
-    Svc -->|read-through| Cache[Redis]
-    Svc -->|persist| PG[(PostgreSQL)]
-    Svc -->|rate limit| Cache
-    HTTPGateway --> Prom[/metrics]
-    Prom --> Prometheus[Prometheus :9091]
+Run locally without Docker (requires Postgres + Redis reachable at the configured addresses):
+
+```bash
+make build
+./bin/server
 ```
 
-## Stack
+## Makefile targets
 
-| Layer | Technology |
+| Target | What it does |
 |---|---|
-| Language | Go 1.25 |
-| gRPC | google.golang.org/grpc + hand-authored service stubs |
-| Proto source | Protocol Buffers v3 (`api/proto/shortener.proto`) |
-| HTTP gateway | chi v5 (thin REST layer over the same service) |
-| Database | PostgreSQL 17 via `pgx/v5` |
-| Cache + rate limit | Redis 7 via `go-redis/v9` |
-| Migrations | Raw SQL (`migrations/`) — apply with `migrate/migrate` |
-| Metrics | Prometheus (`client_golang`) |
-| Logging | `log/slog` (structured JSON) |
-| Config | `envconfig` (12-factor) |
-| Container | Multi-stage Docker (distroless final image) |
+| `make run` | `docker compose up --build` — full stack |
+| `make build` | Compile the server binary to `bin/server` (trimmed, stripped) |
+| `make test` | `go test -race -count=1 ./...` |
+| `make lint` | `golangci-lint run ./...` |
+| `make vet` | `go vet ./...` |
+| `make proto` | Regenerate protobuf/gRPC stubs (needs `protoc` + plugins) |
+| `make clean` | Remove `bin/` |
 
-## API — REST examples
+## Configuration
+
+All configuration is read from environment variables (12-factor). Names and purpose only:
+
+| Variable | Purpose |
+|---|---|
+| `HTTP_ADDR` | Listen address for the HTTP REST server (default `:8080`) |
+| `GRPC_ADDR` | Listen address for the gRPC server (default `:9090`) |
+| `DATABASE_URL` | PostgreSQL connection DSN |
+| `REDIS_ADDR` | Redis host:port for cache + rate limiting |
+| `REDIS_PASSWORD` | Redis auth password (empty by default) |
+| `CACHE_TTL` | TTL for cached link lookups |
+| `RATE_LIMIT_MAX` | Max requests per IP per window |
+| `RATE_LIMIT_WINDOW` | Rate-limit window duration |
+| `CODE_LENGTH` | Length of generated base62 short codes |
+| `SHUTDOWN_TIMEOUT` | Graceful shutdown drain timeout |
+| `LOG_LEVEL` | Log verbosity (`info`, `debug`) |
+
+## API reference
+
+### HTTP REST
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/links` | Create a short link (`{"original_url":"...","ttl_seconds":86400}`) |
+| `GET` | `/v1/links` | List links (paginated, `?page_size=`) |
+| `GET` | `/v1/links/{code}` | Get link details |
+| `GET` | `/v1/links/{code}/stats` | Get click stats |
+| `DELETE` | `/v1/links/{code}` | Delete a link |
+| `GET` | `/r/{code}` | Resolve — 302 redirect to the original URL |
+| `GET` | `/healthz` | Liveness probe |
+| `GET` | `/readyz` | Readiness probe |
+| `GET` | `/metrics` | Prometheus metrics |
 
 ```bash
 # Create a short link
@@ -59,36 +198,22 @@ curl -X POST http://localhost:8080/v1/links \
   -H 'Content-Type: application/json' \
   -d '{"original_url":"https://example.com","ttl_seconds":86400}'
 
-# Response: {"Code":"xYz9K2m","OriginalURL":"https://example.com",...}
-
-# Redirect
+# Resolve (follow redirect)
 curl -L http://localhost:8080/r/xYz9K2m
-
-# Get link details
-curl http://localhost:8080/v1/links/xYz9K2m
 
 # Stats
 curl http://localhost:8080/v1/links/xYz9K2m/stats
-
-# List (paginated)
-curl "http://localhost:8080/v1/links?page_size=10"
-
-# Delete
-curl -X DELETE http://localhost:8080/v1/links/xYz9K2m
 ```
 
-## API — gRPC examples (grpcurl)
+### gRPC (grpcurl)
 
 ```bash
-# Create a link
 grpcurl -plaintext -d '{"original_url":"https://example.com"}' \
   localhost:9090 shortener.v1.ShortenerService/CreateLink
 
-# Resolve
 grpcurl -plaintext -d '{"code":"xYz9K2m","client_ip":"127.0.0.1"}' \
   localhost:9090 shortener.v1.ShortenerService/Resolve
 
-# Stats
 grpcurl -plaintext -d '{"code":"xYz9K2m"}' \
   localhost:9090 shortener.v1.ShortenerService/Stats
 ```
@@ -96,22 +221,13 @@ grpcurl -plaintext -d '{"code":"xYz9K2m"}' \
 ## Design highlights
 
 ### Caching (read-through, write-invalidate)
-Redis is a read-through cache on `GetLink` and `Resolve` paths. On create, the new link is written to cache immediately. On click increment (fire-and-forget goroutine), the stale entry is evicted so next read picks up fresh click count from Postgres.
+Redis is a read-through cache on the `GetLink` and `Resolve` paths. On create, the new link is written to cache immediately. On click increment (fire-and-forget goroutine), the stale entry is evicted so the next read picks up the fresh click count from Postgres. Cache TTL is the minimum of the global `CACHE_TTL` and the link's remaining lifetime — expired links are never served from cache.
 
-Cache TTL is the minimum of the global `CACHE_TTL` env var and the link's remaining lifetime — expired links are never served from cache.
-
-### Rate limiting (Redis sliding counter)
-Each inbound IP gets a Redis counter key (`rl:<ip>`). On each `Resolve` call:
-1. Atomically `INCR` the key and set expiry in a pipeline.
-2. If count > `RATE_LIMIT_MAX` within `RATE_LIMIT_WINDOW`, return `429`.
-
-The rate limiter fails open on Redis errors so a cache outage doesn't block resolves.
+### Rate limiting (Redis counter)
+Each inbound IP gets a Redis counter key. On each `Resolve`, the key is atomically incremented with an expiry set in a pipeline; over `RATE_LIMIT_MAX` within `RATE_LIMIT_WINDOW` returns `429`. The limiter fails open on Redis errors so a cache outage doesn't block resolves.
 
 ### Short code generation (base62)
-Codes are 7-char base62 (`[0-9A-Za-z]`) generated using `crypto/rand` for uniform distribution. Collision check runs up to 5 attempts before returning an error (collision probability at 62^7 ≈ 3.5 × 10¹² is negligible).
-
-### Graceful shutdown
-`signal.NotifyContext` captures `SIGINT`/`SIGTERM`. gRPC uses `GracefulStop()` (drains in-flight RPCs); HTTP uses `http.Server.Shutdown()` with a configurable timeout.
+Codes are configurable-length base62 (`[0-9A-Za-z]`) generated with `crypto/rand` for uniform distribution, with a bounded collision retry.
 
 ### Prometheus metrics
 | Metric | Type | Labels |
@@ -124,38 +240,22 @@ Codes are 7-char base62 (`[0-9A-Za-z]`) generated using `crypto/rand` for unifor
 | `govault_links_resolved_total` | Counter | — |
 | `govault_ratelimit_rejections_total` | Counter | — |
 
-## Configuration
+## Part of the oriz family
 
-All settings via environment variables (12-factor):
+go-vault is one of ~80 sites and tools in the **oriz** family. See the rest at [blog.oriz.in](https://blog.oriz.in).
 
-| Variable | Default | Description |
-|---|---|---|
-| `DATABASE_URL` | `postgres://vault:vault@localhost:5432/vault?sslmode=disable` | Postgres DSN |
-| `REDIS_ADDR` | `localhost:6379` | Redis address |
-| `REDIS_PASSWORD` | `` | Redis password |
-| `HTTP_ADDR` | `:8080` | HTTP listen address |
-| `GRPC_ADDR` | `:9090` | gRPC listen address |
-| `CACHE_TTL` | `5m` | Redis cache TTL |
-| `RATE_LIMIT_MAX` | `100` | Max requests per IP per window |
-| `RATE_LIMIT_WINDOW` | `1m` | Rate limit window |
-| `CODE_LENGTH` | `7` | Short code length |
-| `LOG_LEVEL` | `info` | `debug` or `info` |
-| `SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout |
+## Contributing
 
-## Development
-
-```bash
-make build    # compile binary → bin/server
-make test     # go test -race ./...
-make lint     # golangci-lint
-make vet      # go vet
-make proto    # regenerate protobuf stubs (requires protoc + plugins)
-```
-
-## Resume keywords backed by this repo
-
-Go · gRPC · Protocol Buffers · microservices · PostgreSQL (pgx/v5) · Redis (go-redis) · read-through cache · rate limiting · Prometheus metrics · Docker multi-stage build · distroless containers · graceful shutdown · 12-factor config · chi HTTP router · structured logging (slog) · testcontainers-compatible · GitHub Actions CI
+Issues and PRs welcome. Run `make lint` and `make test` before submitting. Conventional commits are the changelog.
 
 ## License
 
-MIT © 2026 Chirag Singhal
+MIT © Chirag Singhal
+
+## Author
+
+**Chirag Singhal** — [chirag@oriz.in](mailto:chirag@oriz.in)
+
+## Status & roadmap
+
+Stable. The core shortener, dual transports, caching, rate limiting, and metrics are complete. Future ideas: analytics dashboards, custom vanity codes, and a gRPC-gateway REST bridge generated straight from the proto.

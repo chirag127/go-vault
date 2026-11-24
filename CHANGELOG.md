@@ -2,6 +2,16 @@
 
 All notable changes documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] - 2026-11-24
+
+### Chore
+- bump github.com/go-chi/chi/v5 from 5.3.1 to 5.4.0
+
+## [Unreleased] - 2026-08-13
+### Changed
+- docs: comprehensive README + topics
+- fix(ci): pass github_token to buf-setup-action to avoid rate-limit download failures
+
 ## [Unreleased] - 2026-08-12
 ### Changed
 - fix: rate limiter fixed window; correct stats field; add cache tests
